@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>أرقام مجانية</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      text-align: center;
+    }
+
+    .box {
+      max-width: 500px;
+      margin: 80px auto;
+      padding: 30px;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    p {
+      color: #666;
+    }
+
+    button {
+      border: none;
+      padding: 15px 25px;
+      border-radius: 12px;
+      background: #222;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    #number {
+      margin: 25px 0;
+      font-size: 22px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="box">
+    <h1>📱 أرقام مجانية</h1>
+
+    <p>اضغط على الزر للحصول على رقم</p>
+
+    <div id="number">لم يتم اختيار رقم</div>
+
+    <button onclick="generateNumber()">
+      الحصول على رقم
+    </button>
+  </div>
+
+  <script>
+    function generateNumber() {
+      const number = "+1 " +
+        Math.floor(100 + Math.random() * 900) + "-" +
+        Math.floor(100 + Math.random() * 900) + "-" +
+        Math.floor(1000 + Math.random() * 9000);
+
+      document.getElementById("number").textContent = number;
+    }
+  </script>
+
+</body>
+</html>
