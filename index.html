@@ -1,77 +1,224 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>أرقام مجانية</title>
+// app.js — واجهة كاملة مع Monaco + AI + فروع
+const API = "";  // نفس الأصل
+const app = document.getElementById("app");
+const nav = document.getElementById("nav");
 
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #f5f5f5;
-      text-align: center;
-    }
+let token = localStorage.getItem("token") || null;
+let currentUser = null;
+let monacoEditor = null;
+let monacoReady = false;
 
-    .box {
-      max-width: 500px;
-      margin: 80px auto;
-      padding: 30px;
-      background: white;
-      border-radius: 20px;
-      box-shadow: 0 5px 20px rgba(0,0,0,0.1);
-    }
+// تهيئة Monaco
+require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" } });
+require(["vs/editor/editor.main"], () => { monacoReady = true; });
 
-    h1 {
-      margin-bottom: 10px;
-    }
+// أدوات
+async function api(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(API + path, { ...options, headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "خطأ" }));
+    throw new Error(err.detail || "خطأ");
+  }
+  return res.json();
+}
+function render(html) { app.innerHTML = html; }
+function esc(s) { return (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
-    p {
-      color: #666;
-    }
+function mountMonaco(elId, value, language = "python") {
+  const start = () => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    monacoEditor = monaco.editor.create(el, {
+      value, language, theme: "vs-dark", automaticLayout: true,
+    });
+  };
+  if (monacoReady) start();
+  else { const t = setInterval(() => { if (monacoReady) { clearInterval(t); start(); } }, 100); }
+}
 
-    button {
-      border: none;
-      padding: 15px 25px;
-      border-radius: 12px;
-      background: #222;
-      color: white;
-      font-size: 16px;
-      cursor: pointer;
-    }
+async function loadUser() {
+  if (!token) { currentUser = null; return; }
+  try { currentUser = await api("/me"); }
+  catch { token = null; localStorage.removeItem("token"); }
+}
 
-    #number {
-      margin: 25px 0;
-      font-size: 22px;
-      font-weight: bold;
-    }
-  </style>
-</head>
+function renderNav() {
+  if (currentUser) {
+    nav.innerHTML = `
+      <a href="#" onclick="showHome();return false;">الرئيسية</a>
+      <a href="#" onclick="showNewRepo();return false;">مستودع جديد</a>
+      <a href="#" onclick="showAI();return false;">🤖 AI</a>
+      ${currentUser.is_admin ? '<a href="#" onclick="showAdmin();return false;">الآدمين</a>' : ""}
+      <button onclick="logout()">خروج (${currentUser.username})</button>`;
+  } else {
+    nav.innerHTML = `
+      <a href="#" onclick="showLogin();return false;">دخول</a>
+      <a href="#" onclick="showRegister();return false;">تسجيل</a>`;
+  }
+}
 
-<body>
+// ---------- المصادقة ----------
+function showLogin() {
+  render(`<div class="card"><h3>دخول</h3>
+    <input id="u" placeholder="اسم المستخدم" />
+    <input id="p" type="password" placeholder="كلمة المرور" />
+    <button class="btn" onclick="doLogin()">دخول</button>
+    <div id="msg"></div></div>`);
+}
+async function doLogin() {
+  const body = new URLSearchParams({
+    username: document.getElementById("u").value,
+    password: document.getElementById("p").value,
+  });
+  const res = await fetch(API + "/token", { method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  if (!res.ok) { document.getElementById("msg").innerHTML = '<p class="error">بيانات خاطئة</p>'; return; }
+  const d = await res.json();
+  token = d.access_token; localStorage.setItem("token", token);
+  await loadUser(); renderNav(); showHome();
+}
+function showRegister() {
+  render(`<div class="card"><h3>تسجيل</h3>
+    <input id="u" placeholder="اسم المستخدم" />
+    <input id="e" placeholder="البريد" />
+    <input id="p" type="password" placeholder="كلمة المرور" />
+    <button class="btn" onclick="doRegister()">تسجيل</button>
+    <div id="msg"></div></div>`);
+}
+async function doRegister() {
+  try {
+    await api("/register", { method: "POST", body: JSON.stringify({
+      username: document.getElementById("u").value,
+      email: document.getElementById("e").value,
+      password: document.getElementById("p").value,
+    })});
+    document.getElementById("msg").innerHTML = '<p class="success">تم! سجّل الدخول.</p>';
+    setTimeout(showLogin, 800);
+  } catch (e) { document.getElementById("msg").innerHTML = `<p class="error">${e.message}</p>`; }
+}
 
-  <div class="box">
-    <h1>📱 أرقام مجانية</h1>
+// ---------- الرئيسية ----------
+async function showHome() {
+  const repos = await api("/repos");
+  render(`<h2>المستودعات</h2>
+    ${repos.length ? repos.map(r => `
+      <div class="card">
+        <h3>${r.owner}/${r.name}</h3>
+        <p>${r.description || "بدون وصف"}</p>
+        <button class="btn" onclick="viewRepo('${r.owner}','${r.name}')">فتح</button>
+      </div>`).join("") : "<p>لا مستودعات بعد.</p>"}`);
+}
 
-    <p>اضغط على الزر للحصول على رقم</p>
+function showNewRepo() {
+  if (!currentUser) return showLogin();
+  render(`<div class="card"><h3>مستودع جديد</h3>
+    <input id="name" placeholder="الاسم" />
+    <input id="desc" placeholder="الوصف" />
+    <button class="btn" onclick="createRepo()">إنشاء</button>
+    <div id="msg"></div></div>`);
+}
+async function createRepo() {
+  try {
+    await api("/repos", { method: "POST", body: JSON.stringify({
+      name: document.getElementById("name").value,
+      description: document.getElementById("desc").value,
+    })});
+    showHome();
+  } catch (e) { document.getElementById("msg").innerHTML = `<p class="error">${e.message}</p>`; }
+}
 
-    <div id="number">لم يتم اختيار رقم</div>
+// ---------- المستودع + الفروع + الملفات ----------
+async function viewRepo(owner, name, branch = "main") {
+  const data = await api(`/repos/${owner}/${name}?branch=${branch}`);
+  const { repo, files, branches } = data;
+  render(`
+    <div class="card">
+      <h3>${repo.owner}/${repo.name}</h3>
+      <p>${repo.description || ""}</p>
+      <div class="tabs">
+        ${branches.map(b => `<div class="tab ${b===branch?"active":""}" onclick="viewRepo('${owner}','${name}','${b}')">🌿 ${b}</div>`).join("")}
+        <div class="tab" onclick="newBranch(${repo.id})">+ فرع</div>
+      </div>
+      <button class="btn" onclick="newFile(${repo.id},'${branch}')">+ ملف جديد</button>
+    </div>
+    <div class="card">
+      <h3>الملفات (${branch})</h3>
+      ${files.length ? files.map(f => `
+        <div><a href="#" onclick="viewFile(${repo.id},'${f.path}','${branch}');return false;">📄 ${f.path}</a></div>
+      `).join("") : "<p>لا ملفات.</p>"}
+    </div>
+    <div class="card"><h3>الـ Commits</h3><div id="commits">جارٍ التحميل...</div></div>
+  `);
+  const commits = await api(`/repos/${repo.id}/commits?branch=${branch}`);
+  document.getElementById("commits").innerHTML = commits.length
+    ? commits.map(c => `<div>📝 ${esc(c.message)} — <small>${c.username}</small></div>`).join("")
+    : "<p>لا commits.</p>";
+}
 
-    <button onclick="generateNumber()">
-      الحصول على رقم
-    </button>
-  </div>
+function newBranch(repoId) {
+  render(`<div class="card"><h3>فرع جديد</h3>
+    <input id="bn" placeholder="اسم الفرع" />
+    <input id="fb" placeholder="من فرع (افتراضي main)" value="main" />
+    <button class="btn" onclick="saveBranch(${repoId})">إنشاء</button>
+    <div id="msg"></div></div>`);
+}
+async function saveBranch(repoId) {
+  try {
+    await api(`/repos/${repoId}/branches`, { method: "POST", body: JSON.stringify({
+      name: document.getElementById("bn").value,
+      from_branch: document.getElementById("fb").value || "main",
+    })});
+    showHome();
+  } catch (e) { document.getElementById("msg").innerHTML = `<p class="error">${e.message}</p>`; }
+}
 
-  <script>
-    function generateNumber() {
-      const number = "+1 " +
-        Math.floor(100 + Math.random() * 900) + "-" +
-        Math.floor(100 + Math.random() * 900) + "-" +
-        Math.floor(1000 + Math.random() * 9000);
+function newFile(repoId, branch) {
+  render(`<div class="card"><h3>ملف جديد (${branch})</h3>
+    <input id="path" placeholder="src/main.py" />
+    <div class="editor-wrap"><div id="editor"></div></div>
+    <button class="btn" onclick="saveFile(${repoId},'${branch}')">حفظ</button>
+    <div id="msg"></div></div>`);
+  mountMonaco("editor", "# اكتب الكود هنا\nprint('hello')", "python");
+}
 
-      document.getElementById("number").textContent = number;
-    }
-  </script>
+async function saveFile(repoId, branch) {
+  try {
+    const content = monacoEditor ? monacoEditor.getValue() : "";
+    await api(`/repos/${repoId}/files`, { method: "POST", body: JSON.stringify({
+      path: document.getElementById("path").value, content, branch,
+    })});
+    showHome();
+  } catch (e) { document.getElementById("msg").innerHTML = `<p class="error">${e.message}</p>`; }
+}
 
-</body>
-</html>
+async function viewFile(repoId, path, branch) {
+  const f = await api(`/repos/${repoId}/files/${encodeURIComponent(path)}?branch=${branch}`);
+  const lang = path.endsWith(".py") ? "python" : path.endsWith(".js") ? "javascript" :
+               path.endsWith(".html") ? "html" : path.endsWith(".css") ? "css" : "plaintext";
+  render(`<div class="card"><h3>${path}</h3>
+    <div class="editor-wrap"><div id="editor"></div></div>
+    <button class="btn" onclick="showHome()">رجوع</button></div>`);
+  mountMonaco("editor", f.content, lang);
+}
+
+// ---------- AI ----------
+function showAI() {
+  render(`<div class="card"><h3>🤖 توليد كود بالذكاء الاصطناعي</h3>
+    <input id="prompt" placeholder="مثال: دالة بايثون لحساب فيبوناتشي" />
+    <select id="lang">
+      <option value="python">Python</option>
+      <option value="javascript">JavaScript</option>
+      <option value="html">HTML</option>
+      <option value="css">CSS</option>
+      <option value="sql">SQL</option>
+    </select>
+    <button class="btn" onclick="genAI()">توليد</button>
+    <div id="msg"></div>
+    <div class="editor-wrap"><div id="editor"></div></div></div>`);
+  mountMonaco("editor", "# سيظهر الكود هنا", "python");
+}
+async function genAI() {
+  try {
+    document.getElementById("
